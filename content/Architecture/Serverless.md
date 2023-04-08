@@ -21,7 +21,7 @@
 
 #### 系统架构
 
-![image-20220116211627424](/Users/zhangmk/Documents/private/code/gitlab/learning-documents/images/typora/Serverless/image-20220116211627424.png)
+![image-20220116211627424](Serverless.assets/image-20220116211627424.png)
 
 ##### Event Source
 
