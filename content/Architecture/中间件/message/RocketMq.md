@@ -77,10 +77,36 @@
   - 是无状态的，其中的Broker、Topic等状态信息不会持久存储，而且各个角色定时上报并存储在内存中的（支持配置持久化，但是基本用不到）
   - 是一个非常简单的Topic路由注册中心，其角色类似Dubbo中的zookeeper，支持Broker的动态注册与发现。
   - 主要包括两个功能：
-    - Broker管理，NameServer接受Broker集群的注册信息并且保存下来作为路由信息的基本数据。然后提供心跳检测机制，检查Broker是否还存活；
-    - 路由信息管理，每个NameServer将保存**关于Broker集群的整个路由信息和用于客户端查询的队列信息**。然后Producer和Consumer通过NameServer就可以知道整个Broker集群的路由信息，从而进行消息的投递和消费。
-  - **NameServer通常也是集群的方式部署，各实例间相互不进行信息通讯**。Broker是向每一台NameServer注册自己的路由信息，所以每一个NameServer实例上面都保存一份完整的路由信息。当某个NameServer因某种原因下线了，Broker仍然可以向其它NameServer同步其路由信息，Producer和Consumer仍然可以动态感知Broker的路由的信息。
+    - **Broker管理**，NameServer接受Broker集群的注册信息并且保存下来作为路由信息的基本数据。然后提供心跳检测机制，检查Broker是否还存活；
+    - **路由信息管理**，每个NameServer将保存**关于Broker集群的整个路由信息和用于客户端查询的队列信息**。然后Producer和Consumer通过NameServer就可以知道整个Broker集群的路由信息，从而进行消息的投递和消费。
+  - **高可用**
+    - NameServer通常也是集群的方式部署，各实例间相互不进行信息通讯。Broker是向每一台NameServer注册自己的路由信息，所以每一个NameServer实例上面都保存一份完整的路由信息。当某个NameServer因某种原因下线了，Broker仍然可以向其它NameServer同步其路由信息，Producer和Consumer仍然可以动态感知Broker的路由的信息。
   - **为何不用ZooKeeper**
-    ZooKeeper是Apache的一个开源软件，为分布式应用程序提供协调服务。那为什么RocketMQ要自己造轮子，开发集群的管理程序呢？答案是ZooKeeper的功能很强大，包括自动Master选举等，RocketMQ的架构设计决定了它不需要进行Master选举，用不到这些复杂的功能，只需要一个轻量级的元数据服务器就足够了。
+    ZooKeeper的功能很强大，包括自动Master选举等，RocketMQ的架构设计决定了它不需要进行Master选举，用不到这些复杂的功能，只需要一个轻量级的元数据服务器就足够了。
     中间件对稳定性要求很高，RocketMQ的NameServer只有很少的代码，容易维护，所以不需要再依赖另一个中间件，从而减少整体维护成本。
-  - 
+
+- 消息的存储和发送
+
+  - 通过使用mmap的方式，可以省去向用户态的内存复制，提高速度
+
+  - 高可用：
+
+    - Consumer：broker的master/slave来支持
+
+    - Producer：不同name的多个broker支持
+
+    - 暂不支持slave自动转成master
+
+    - 异步刷盘，同步刷盘，异步复制，同步复制
+
+      > 通常情况下，应该把Master和Save配置成ASYNC_FLUSH的刷盘方式，主从之间配置成SYNC_MASTER的复制方式，这样即使有一台机器出故障，仍然能保证数据不丢，是个不错的选择。
+
+- 可靠性
+  - 顺序消息问题
+    - 全局顺序：消息队列、生产者、消费者都是1（消除并发、全部单线程）
+    - 部分顺序：根据业务属性，需要顺序处理的消息要发到同一个messageQueue中，消费者消费是不能并发处理
+  - 重复消费问题
+    - 一定投递”和“不重复投递”是很难做到的。
+    - RocketMQ选择了确保一定投递，保证消息不丢失，但有可能造成消息重复
+      - 网络波动，生产者的重试会造成重复投递
+      - 消费者需要保证消费逻辑幂等性或者判断消息是否消费过
