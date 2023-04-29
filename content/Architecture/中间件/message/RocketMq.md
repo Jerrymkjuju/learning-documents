@@ -15,7 +15,7 @@
 
 - 下表显示了RocketMQ、ActiveMQ和Kafka之间的比较 
 
-## RocketMQ vs. ActiveMQ vs. Kafka
+## MQ 比较
 
 | Messaging Product|Client SDK| Protocol and Specification | Ordered Message  | Scheduled Message | Batched Message |BroadCast Message| Message Filter|Server Triggered Redelivery|Message Storage|Message Retroactive|Message Priority|High Availability and Failover|Message Track|Configuration|Management and Operation Tools|
 | -------|--------|--------|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
@@ -25,81 +25,101 @@
 
 
 
+## 5.0 新特性
+
+- POP消费
+- StaticTopic
+- BatchConsumeQueue
+- 自动主从切换
+- BrokerContainer
+- SlaveActingMaster模式
+- Grpc Proxy
+
 ## 关键知识点
 
-- 消费者
+### 5.0 架构图
 
-  - DefaultMQPushConsumer
+<img src="RocketMq.assets/76af2963ec644582b0c71f987d7c95d3~tplv-k3u1fbpfcp-zoom-in-crop-mark:3024:0:0:0.png" alt="img" style="zoom:50%;" />
 
-    - **实现方式**：并不是真正的push，而是通过long-polling实现，所以逻辑中大部分是pullRequest
+### 消费者
 
-    - **流量控制**：每个messageQueue有一个ProcessQueue去做流量控制（客户端在每次pullRequestqianyu会判断获取但还未处理的消息个数，消息总大小，offset的跨度，任意一个超过阈值的话就会间隔一段时间再拉取）
+- DefaultMQPushConsumer
 
-    - **启动检测**：会检查各种配置信息，但是无法连接nameserver的情况并不会退出（而是不断重连）
+  - **实现方式**：并不是真正的push，而是通过long-polling实现，所以逻辑中大部分是pullRequest
 
-      > *如果希望可以启动就暴露问题，可以在start后，调用fetchSubscribeMessageQueues，此时配置错误会抛出MQClientException*
+  - **流量控制**：每个messageQueue有一个ProcessQueue去做流量控制（客户端在每次pullRequestqianyu会判断获取但还未处理的消息个数，消息总大小，offset的跨度，任意一个超过阈值的话就会间隔一段时间再拉取）
 
-  - DefaultLitePullConsumer
+  - **启动检测**：会检查各种配置信息，但是无法连接nameserver的情况并不会退出（而是不断重连）
 
-    - 旧版本为DefaultMQPullConsumer
-    - 主动权在consumer手中，需要consumer自己维护offset
+    > *如果希望可以启动就暴露问题，可以在start后，调用fetchSubscribeMessageQueues，此时配置错误会抛出MQClientException*
 
-- 生产者
+- DefaultLitePullConsumer
 
-  - 延迟消息仅支持预设值的时间长度
+  - 旧版本为DefaultMQPullConsumer
+  - 主动权在consumer手中，需要consumer自己维护offset
 
-  - 多个MessageQueue时，一般是轮流发送，消费者也会根据负载均衡策略进行分配（具体发到哪里是未知的）
+### 生产者
 
-    - 可以在发送消息时指定MessageQueueSelector和args来选在发到哪一个messageQueue
+- 延迟消息仅支持预设值的时间长度
 
-  - 事务消息是使用二阶段提交的方式来实现
+- 多个MessageQueue时，一般是轮流发送，消费者也会根据负载均衡策略进行分配（具体发到哪里是未知的）
 
-    > RocketMq是将数据顺序写到磁盘来提升性能的，commit或者rollback需要更改一阶段的状态，这样会造成磁盘catch的脏页过多，降低系统性能。所以4.x的版本中这部分功能被去除，用户可根据实际需求实现自己的事务功能
-    >
-    > *TODO 确认当前最新的事务方式是如何处理的*
+  - 可以在发送消息时指定MessageQueueSelector和args来选在发到哪一个messageQueue
 
-- Offset
+- 事务消息是使用二阶段提交的方式来实现
 
-  - DefaultMQPushConsumer
-    - 集群模式下，是Broker代存，RemoteBrokerOffsetStore
-    - 广播模式下，是本地文件类型，LocalFileOffsetStore
-  - PullConsumer
-    - 自己处理offsetStore（本地持久化）
-  - ConsumeFromWhere
-    - LAST/FIRST/TIMESTAMP
+  > RocketMq是将数据顺序写到磁盘来提升性能的，commit或者rollback需要更改一阶段的状态，这样会造成磁盘catch的脏页过多，降低系统性能。所以4.x的版本中这部分功能被去除，用户可根据实际需求实现自己的事务功能
+  >
+  > *TODO 确认当前最新的事务方式是如何处理的*
+
+### Offset
+
+- DefaultMQPushConsumer
+  - 集群模式下，是Broker代存，RemoteBrokerOffsetStore
+  - 广播模式下，是本地文件类型，LocalFileOffsetStore
+  
+- PullConsumer
+  - 自己处理offsetStore（本地持久化）
+  
+- ConsumeFromWhere
+  - LAST/FIRST/TIMESTAMP
 
 - Log
 
-  > *TODO 新版本的Log类去哪里了*
+  > 旧版本  org.apache.rocketmq.Client.Log ClientLogger
+  
+  新版本的日志封装到了rocketmq-slf4j-api-1.0.1.jar，各个module中配置相关的logback配置文件，如：rmq.client.logback.xml
+  
+  <img src="RocketMq.assets/image-20230425133910971.png" alt="image-20230425133910971" style="zoom:50%;" />
 
-- NameServer
+### NameServer
 
-  - 是无状态的，其中的Broker、Topic等状态信息不会持久存储，而且各个角色定时上报并存储在内存中的（支持配置持久化，但是基本用不到）
-  - 是一个非常简单的Topic路由注册中心，其角色类似Dubbo中的zookeeper，支持Broker的动态注册与发现。
-  - 主要包括两个功能：
-    - **Broker管理**，NameServer接受Broker集群的注册信息并且保存下来作为路由信息的基本数据。然后提供心跳检测机制，检查Broker是否还存活；
-    - **路由信息管理**，每个NameServer将保存**关于Broker集群的整个路由信息和用于客户端查询的队列信息**。然后Producer和Consumer通过NameServer就可以知道整个Broker集群的路由信息，从而进行消息的投递和消费。
-  - **高可用**
-    - NameServer通常也是集群的方式部署，各实例间相互不进行信息通讯。Broker是向每一台NameServer注册自己的路由信息，所以每一个NameServer实例上面都保存一份完整的路由信息。当某个NameServer因某种原因下线了，Broker仍然可以向其它NameServer同步其路由信息，Producer和Consumer仍然可以动态感知Broker的路由的信息。
-  - **为何不用ZooKeeper**
-    ZooKeeper的功能很强大，包括自动Master选举等，RocketMQ的架构设计决定了它不需要进行Master选举，用不到这些复杂的功能，只需要一个轻量级的元数据服务器就足够了。
-    中间件对稳定性要求很高，RocketMQ的NameServer只有很少的代码，容易维护，所以不需要再依赖另一个中间件，从而减少整体维护成本。
+- 是无状态的，其中的Broker、Topic等状态信息不会持久存储，而且各个角色定时上报并存储在内存中的（支持配置持久化，但是基本用不到）
+- 是一个非常简单的Topic路由注册中心，其角色类似Dubbo中的zookeeper，支持Broker的动态注册与发现。
+- 主要包括两个功能：
+  - **Broker管理**，NameServer接受Broker集群的注册信息并且保存下来作为路由信息的基本数据。然后提供心跳检测机制，检查Broker是否还存活；
+  - **路由信息管理**，每个NameServer将保存**关于Broker集群的整个路由信息和用于客户端查询的队列信息**。然后Producer和Consumer通过NameServer就可以知道整个Broker集群的路由信息，从而进行消息的投递和消费。
+- **高可用**
+  - NameServer通常也是集群的方式部署，各实例间相互不进行信息通讯。Broker是向每一台NameServer注册自己的路由信息，所以每一个NameServer实例上面都保存一份完整的路由信息。当某个NameServer因某种原因下线了，Broker仍然可以向其它NameServer同步其路由信息，Producer和Consumer仍然可以动态感知Broker的路由的信息。
+- **为何不用ZooKeeper**
+  ZooKeeper的功能很强大，包括自动Master选举等，RocketMQ的架构设计决定了它不需要进行Master选举，用不到这些复杂的功能，只需要一个轻量级的元数据服务器就足够了。
+  中间件对稳定性要求很高，RocketMQ的NameServer只有很少的代码，容易维护，所以不需要再依赖另一个中间件，从而减少整体维护成本。
 
-- 消息的存储和发送
+### 消息的存储和发送
 
-  - 通过使用mmap的方式，可以省去向用户态的内存复制，提高速度
+- 通过使用mmap的方式，可以省去向用户态的内存复制，提高速度
 
-  - 高可用：
+- 高可用：
 
-    - Consumer：broker的master/slave来支持
+  - Consumer：broker的master/slave来支持
 
-    - Producer：不同name的多个broker支持
+  - Producer：不同name的多个broker支持
 
-    - 暂不支持slave自动转成master
+  - ~~*暂不支持slave自动转成master*~~ 新版本broker已经支持自动主从切换 [自动主从切换介绍](https://juejin.cn/post/7157730173620584478)
 
-    - 异步刷盘，同步刷盘，异步复制，同步复制
+  - 异步刷盘，同步刷盘，异步复制，同步复制
 
-      > 通常情况下，应该把Master和Save配置成ASYNC_FLUSH的刷盘方式，主从之间配置成SYNC_MASTER的复制方式，这样即使有一台机器出故障，仍然能保证数据不丢，是个不错的选择。
+    > 通常情况下，应该把Master和Save配置成ASYNC_FLUSH的刷盘方式，主从之间配置成SYNC_MASTER的复制方式，这样即使有一台机器出故障，仍然能保证数据不丢，是个不错的选择。
 
 - 可靠性
   - 顺序消息问题
